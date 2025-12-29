@@ -213,28 +213,20 @@ class Agent:
                     # 5. Verification (Auto-Judge)
                     if step.expected_result:
                          # Capture context again for verification
-                         # Include input values in the text for better verification
                          verify_elements = await page.evaluate("""() => {
-                             // Helper to replace inputs with their values in a clone of body
-                             const bodyClone = document.body.cloneNode(true);
-                             
-                             // Remove scripts and styles first to clean up noise
-                             const scripts = bodyClone.querySelectorAll('script, style, noscript');
-                             scripts.forEach(s => s.remove());
-
-                             // Collect inputs separately to ensure they are captured even if hidden in bodyClone
-                             let inputValues = [];
-                             const originalInputs = document.querySelectorAll('input, textarea');
-                             originalInputs.forEach(input => {
-                                 if (input.value && input.value.trim() !== "") {
-                                     // Check if visible
-                                     const style = window.getComputedStyle(input);
-                                     const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
-                                     inputValues.push(`Input [${input.id || input.name || 'unknown'}]: ${input.value} (Visible: ${isVisible})`);
+                             const inputs = document.querySelectorAll('input, textarea');
+                             let results = [];
+                             inputs.forEach(el => {
+                                 // Only care about visible inputs or inputs with values
+                                 const style = window.getComputedStyle(el);
+                                 const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
+                                 if (el.value || isVisible) {
+                                     results.push(`Input [${el.id || el.name || 'unknown'}]: '${el.value}' (Visible: ${isVisible})`);
                                  }
                              });
                              
-                             return "Detected Inputs:\\n" + inputValues.join("\\n") + "\\n\\nPage Text:\\n" + document.body.innerText.slice(0, 5000); 
+                             const bodyText = document.body.innerText.replace(/\\s+/g, ' ').slice(0, 5000);
+                             return "Detected Inputs:\\n" + results.join("\\n") + "\\n\\nPage Text:\\n" + bodyText; 
                          }""")
                          
                          system_verify_prompt = """
@@ -336,6 +328,7 @@ class Agent:
             elif action == "fill":
                 value = action_data.get("value")
                 if selector and value is not None:
+                    js_selector = selector.replace("'", "\\'")
                     # 1. Try Standard Fill/Type with reduced timeout
                     try:
                         print(f"[Action] Trying Level 1 (Playwright Type) on {selector}...")
@@ -344,6 +337,12 @@ class Agent:
                         await page.click(selector, timeout=1000) # Short timeout for focus click
                         # Type with 0 delay for instant input
                         await page.keyboard.type(value, delay=0)
+                        
+                        # Verify if value was applied
+                        current_val = await page.evaluate(f"document.querySelector('{js_selector}').value")
+                        if current_val != value:
+                             raise Exception(f"Value mismatch after type. Expected '{value}', got '{current_val}'")
+                             
                         print(f"[Action] Level 1 (Playwright Type) SUCCESS")
                     except Exception as e:
                         print(f"[Action] Level 1 Failed: {e}")
@@ -351,26 +350,33 @@ class Agent:
                         # 2. JS Focus + CDP InsertText (True User Simulation)
                         try:
                             print(f"[Action] Trying Level 2 (CDP InsertText) on {selector}...")
-                            js_selector = selector.replace("'", "\\'")
                             await page.evaluate(f"document.querySelector('{js_selector}').focus()")
+                            # Small delay to ensure focus
+                            await page.wait_for_timeout(200)
                             await session.send("Input.insertText", {"text": value})
+                            
+                            # Verify again
+                            current_val = await page.evaluate(f"document.querySelector('{js_selector}').value")
+                            if current_val != value:
+                                 raise Exception(f"Value mismatch after CDP. Expected '{value}', got '{current_val}'")
+                                 
                             print(f"[Action] Level 2 (CDP InsertText) SUCCESS")
                         except Exception as cdp_e:
                             print(f"[Action] Level 2 Failed: {cdp_e}")
 
-                    # 3. Always Force JS Fill (Safety Net)
-                    print(f"[Action] Executing Level 3 (JS Force Fill) as Safety Net...")
-                    js_selector = selector.replace("'", "\\'")
-                    await page.evaluate(f"""(val) => {{
-                       const el = document.querySelector('{js_selector}');
-                       if (el) {{
-                           el.value = val;
-                           el.setAttribute('value', val);
-                           el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                           el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                       }}
-                    }}""", value)
-                    print(f"[Action] Level 3 (JS Force Fill) Executed")
+                            # 3. Always Force JS Fill (Safety Net)
+                            print(f"[Action] Executing Level 3 (JS Force Fill) as Safety Net...")
+                            await page.evaluate(f"""(val) => {{
+                               const el = document.querySelector('{js_selector}');
+                               if (el) {{
+                                   el.value = val;
+                                   el.setAttribute('value', val);
+                                   el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                   el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                   el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                               }}
+                            }}""", value)
+                            print(f"[Action] Level 3 (JS Force Fill) Executed")
 
             elif action == "goto":
                 url = action_data.get("url")
