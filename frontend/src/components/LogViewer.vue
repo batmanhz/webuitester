@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onUnmounted } from 'vue'
+import { useTestRunStore } from '../stores/testRun'
+import { VideoPause } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const props = defineProps<{
   runId: string | null
 }>()
 
+const runStore = useTestRunStore()
+
 const logs = ref<{type: string, data: any, timestamp?: string}[]>([])
 const currentScreenshot = ref<string | null>(null)
 const status = ref<string>('IDLE')
 let socket: WebSocket | null = null
+const stopping = ref(false)
 
 const connect = () => {
   if (!props.runId) return
@@ -18,14 +24,6 @@ const connect = () => {
   
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host // includes port if dev
-  // In dev, vite proxy forwards /api to backend 19000. 
-  // But WS proxying might be tricky with Vite.
-  // Ideally, if we configured vite proxy correctly:
-  // '/api/runs/ws' -> 'ws://localhost:19000/api/runs/ws'
-  // Let's try relative path with ws protocol replacement?
-  // Actually, standard practice with Vite proxy:
-  // If we use `ws://localhost:5173/api/runs/ws/...` vite should proxy it.
-  
   const wsUrl = `${protocol}//${host}/api/runs/ws/${props.runId}`
   
   console.log('Connecting to WS:', wsUrl)
@@ -66,6 +64,19 @@ const connect = () => {
   }
 }
 
+const handleStop = async () => {
+    if (!props.runId) return
+    stopping.value = true
+    try {
+        await runStore.stopRun(props.runId)
+        ElMessage.info('Stop signal sent')
+    } catch (e: any) {
+        ElMessage.error(e.message || 'Failed to stop run')
+    } finally {
+        stopping.value = false
+    }
+}
+
 const logContainer = ref<HTMLElement | null>(null)
 const scrollToBottom = async () => {
   await nextTick()
@@ -96,20 +107,43 @@ defineExpose({
 <template>
   <div class="log-viewer">
     <div class="screenshot-pane">
+        <div class="status-bar">
+            <el-tag :type="status === 'RUNNING' ? 'success' : status === 'FAILED' ? 'danger' : 'info'">
+                Status: {{ status }}
+            </el-tag>
+            <el-button 
+                v-if="status === 'RUNNING'" 
+                type="danger" 
+                size="small" 
+                @click="handleStop"
+                :loading="stopping"
+            >
+                <el-icon><VideoPause /></el-icon> Stop
+            </el-button>
+        </div>
+
       <div v-if="currentScreenshot" class="screenshot-container">
         <img :src="currentScreenshot" alt="Current View" />
       </div>
       <div v-else class="placeholder">
-        <el-icon class="icon"><Monitor /></el-icon>
-        <span>Waiting for execution...</span>
+        <p>Waiting for execution...</p>
       </div>
     </div>
     
-    <div class="logs-pane" ref="logContainer">
-      <div v-for="(log, idx) in logs" :key="idx" class="log-entry" :class="log.type">
-        <span class="timestamp" v-if="log.timestamp">{{ log.timestamp }}</span>
-        <span class="type">[{{ log.type.toUpperCase() }}]</span>
-        <span class="message">{{ typeof log.data === 'string' ? log.data : JSON.stringify(log.data) }}</span>
+    <div class="console-pane" ref="logContainer">
+      <div v-for="(log, idx) in logs" :key="idx" class="log-line" :class="log.type">
+        <span class="timestamp" v-if="log.timestamp">[{{ log.timestamp }}]</span>
+        <span class="content">
+            <template v-if="log.type === 'status'">
+                STATUS: {{ log.data }}
+            </template>
+             <template v-else-if="typeof log.data === 'object'">
+                {{ JSON.stringify(log.data) }}
+            </template>
+            <template v-else>
+                {{ log.data }}
+            </template>
+        </span>
       </div>
     </div>
   </div>
@@ -121,18 +155,35 @@ defineExpose({
   flex-direction: column;
   height: 100%;
   background-color: #1e1e1e;
-  color: #d4d4d4;
+  border-left: 1px solid #333;
 }
 
 .screenshot-pane {
-  flex: 1;
-  background-color: #000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  flex: 1; /* Takes 60% ideally, but flex 1 and console fixed height is easier */
+  height: 60%;
   border-bottom: 1px solid #333;
-  min-height: 200px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background-color: #000;
+  overflow: hidden;
+}
+
+.status-bar {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    display: flex;
+    gap: 10px;
+}
+
+.screenshot-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .screenshot-container img {
@@ -142,37 +193,43 @@ defineExpose({
 }
 
 .placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
+  justify-content: center;
   align-items: center;
   color: #666;
-  gap: 10px;
 }
 
-.logs-pane {
-  flex: 1;
+.console-pane {
+  height: 40%;
   overflow-y: auto;
   padding: 10px;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: 'Fira Code', monospace;
   font-size: 12px;
   background-color: #1e1e1e;
 }
 
-.log-entry {
+.log-line {
   margin-bottom: 4px;
+  line-height: 1.4;
   word-break: break-all;
-  white-space: pre-wrap;
-  text-align: left;
+  color: #d4d4d4;
 }
 
-.log-entry.error { color: #f48771; }
-.log-entry.info { color: #6a9955; }
-.log-entry.step_start { color: #569cd6; font-weight: bold; margin-top: 8px; }
-.log-entry.step_end { color: #569cd6; margin-bottom: 8px; }
-.log-entry.status { color: #c586c0; font-style: italic; }
+.log-line.error { color: #f87171; }
+.log-line.status { color: #60a5fa; font-weight: bold; }
+.log-line.info { color: #9ca3af; }
 
-.type {
-  margin-right: 8px;
-  opacity: 0.7;
+/* Custom scrollbar */
+.console-pane::-webkit-scrollbar {
+  width: 8px;
+}
+.console-pane::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+.console-pane::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
 }
 </style>

@@ -36,10 +36,28 @@ export const useTestRunStore = defineStore('testRun', () => {
     }
   }
 
+  const stopRun = async (runId: string) => {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await fetch(`/api/runs/${runId}/stop`, {
+        method: 'POST',
+      })
+      if (!response.ok) throw new Error('Failed to stop test run')
+      return await response.json()
+    } catch (e: any) {
+      error.value = e.message
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     currentRun,
     loading,
     error,
-    createRun
+    createRun,
+    stopRun
   }
 })

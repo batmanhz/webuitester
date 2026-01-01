@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTestCaseStore } from '../stores/testCase'
 import { useTestRunStore } from '../stores/testRun'
 import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
 import { ElMessage } from 'element-plus'
-import { Delete, Plus, VideoPlay } from '@element-plus/icons-vue'
+import { Delete, Plus, VideoPlay, Rank } from '@element-plus/icons-vue'
 import LogViewer from '../components/LogViewer.vue'
+import draggable from 'vuedraggable'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,8 +25,16 @@ const form = ref({
   steps: [] as { instruction: string; expected_result: string; order: number }[]
 })
 
+// Watch steps changes to update order
+watch(() => form.value.steps, (newSteps) => {
+    newSteps.forEach((step, index) => {
+        step.order = index + 1
+    })
+}, { deep: true })
+
 onMounted(async () => {
   if (!isNew.value) {
+    // Edit Mode
     loading.value = true
     const id = route.params.id as string
     await store.fetchCase(id)
@@ -42,8 +51,24 @@ onMounted(async () => {
     }
     loading.value = false
   } else {
-    // Add one empty step by default
-    addStep()
+    // New Case Mode
+    // Check if we have generated data in store (passed from HomeView)
+    if (store.currentCase && !store.currentCase.id) {
+        form.value = {
+            name: store.currentCase.name,
+            url: store.currentCase.url,
+            steps: store.currentCase.steps.map(s => ({
+                instruction: s.instruction,
+                expected_result: s.expected_result || '',
+                order: s.order
+            }))
+        }
+        // Clear temp data
+        store.currentCase = null
+    } else {
+        // Fallback or fresh start
+        addStep()
+    }
   }
 })
 
@@ -57,13 +82,9 @@ const addStep = () => {
 
 const removeStep = (index: number) => {
   form.value.steps.splice(index, 1)
-  // Reorder
-  form.value.steps.forEach((step, idx) => {
-    step.order = idx + 1
-  })
 }
 
-const saveCase = async () => {
+const saveCase = async (andRun: boolean = false) => {
   if (!form.value.name || !form.value.url) {
     ElMessage.warning('Please fill in Name and Target URL')
     return
@@ -71,6 +92,7 @@ const saveCase = async () => {
   
   try {
     loading.value = true
+    let caseId = ''
     if (isNew.value) {
       const newCase = await store.createCase({
         name: form.value.name,
@@ -78,14 +100,11 @@ const saveCase = async () => {
         steps: form.value.steps
       })
       ElMessage.success('Test case created successfully')
-      // Redirect to edit mode of the new case so we can run it
-      // Note: We use router.replace or router.push, but wait for it.
-      // Also updating local form state if we want to stay on the page.
-      // However, pushing to a new route might trigger onMounted again or not depending on reuse.
-      // Since we key router-view by fullPath in App.vue, it should reload the component.
-      await router.push(`/case/${newCase.id}`)
+      caseId = newCase.id
+      // Navigate to real ID URL
+      await router.push(`/case/${caseId}`)
     } else {
-      const caseId = route.params.id as string
+      caseId = route.params.id as string
       await store.updateCase(caseId, {
         name: form.value.name,
         url: form.value.url,
@@ -93,6 +112,11 @@ const saveCase = async () => {
       })
       ElMessage.success('Test case updated successfully')
     }
+
+    if (andRun) {
+        await runTest(caseId)
+    }
+
   } catch (e: any) {
     ElMessage.error(e.message || 'Failed to save test case')
   } finally {
@@ -100,13 +124,15 @@ const saveCase = async () => {
   }
 }
 
-const runTest = async () => {
-  if (isNew.value) {
+const runTest = async (id?: string) => {
+  const caseId = id || (route.params.id as string)
+  
+  if (isNew.value && !id) {
+     // Should assume saveCase(true) handles this
     ElMessage.warning('Please save the test case first')
     return
   }
   
-  const caseId = route.params.id as string
   try {
     const run = await runStore.createRun(caseId)
     currentRunId.value = run.id
@@ -125,9 +151,9 @@ const runTest = async () => {
           <div class="panel-header">
             <h2>{{ isNew ? 'New Test Case' : 'Edit Test Case' }}</h2>
             <div class="actions">
-              <el-button type="primary" @click="saveCase" :loading="loading">Save</el-button>
-              <el-button type="success" @click="runTest" :disabled="isNew">
-                <el-icon><VideoPlay /></el-icon> Run
+              <el-button @click="saveCase(false)" :loading="loading">Save Only</el-button>
+              <el-button type="primary" @click="saveCase(true)" :loading="loading">
+                <el-icon><VideoPlay /></el-icon> Save & Run
               </el-button>
             </div>
           </div>
@@ -149,37 +175,49 @@ const runTest = async () => {
                 </el-button>
               </div>
               
-              <div v-for="(step, index) in form.steps" :key="index" class="step-item">
-                <div class="step-header">
-                  <span class="step-number">#{{ index + 1 }}</span>
-                  <el-button type="danger" link @click="removeStep(index)">
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
-                </div>
-                
-                <el-row :gutter="20">
-                  <el-col :span="12">
-                    <el-form-item label="Instruction">
-                      <el-input 
-                        v-model="step.instruction" 
-                        type="textarea" 
-                        :rows="2"
-                        placeholder="e.g. Click on 'Login' button" 
-                      />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="12">
-                    <el-form-item label="Expected Result">
-                      <el-input 
-                        v-model="step.expected_result" 
-                        type="textarea" 
-                        :rows="2"
-                        placeholder="e.g. Login modal appears" 
-                      />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-              </div>
+              <draggable 
+                v-model="form.steps" 
+                item-key="order"
+                handle=".drag-handle"
+                :animation="200"
+              >
+                <template #item="{ element, index }">
+                  <div class="step-item">
+                    <div class="step-header">
+                      <div class="step-title">
+                        <el-icon class="drag-handle" style="cursor: move; margin-right: 10px"><Rank /></el-icon>
+                        <span class="step-number">#{{ index + 1 }}</span>
+                      </div>
+                      <el-button type="danger" link @click="removeStep(index)">
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </div>
+                    
+                    <el-row :gutter="20">
+                      <el-col :span="12">
+                        <el-form-item label="Instruction">
+                          <el-input 
+                            v-model="element.instruction" 
+                            type="textarea" 
+                            :rows="2"
+                            placeholder="e.g. Click on 'Login' button" 
+                          />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :span="12">
+                        <el-form-item label="Expected Result">
+                          <el-input 
+                            v-model="element.expected_result" 
+                            type="textarea" 
+                            :rows="2"
+                            placeholder="e.g. Login modal appears" 
+                          />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+                  </div>
+                </template>
+              </draggable>
             </div>
           </el-form>
         </div>
@@ -204,65 +242,66 @@ const runTest = async () => {
 .panel-content {
   height: 100%;
   padding: 20px;
-  background-color: #1e1e1e;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.left-panel {
+  background-color: var(--el-bg-color);
+  border-right: 1px solid var(--el-border-color);
 }
 
 .right-panel {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.right-panel h2 {
-  padding: 20px 20px 0 20px;
-  margin-bottom: 10px;
+  background-color: #1e1e1e; /* Darker background for console feel */
+  color: #fff;
 }
 
 .panel-header {
   display: flex;
-  justify_content: space-between;
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
-.left-panel {
-  border-right: 1px solid #333;
+.steps-section {
+  margin-top: 30px;
 }
 
 .steps-header {
   display: flex;
-  justify_content: space-between;
+  justify-content: space-between;
   align-items: center;
-  margin: 20px 0 10px;
-  border-bottom: 1px solid #333;
-  padding-bottom: 10px;
+  margin-bottom: 15px;
 }
 
 .step-item {
-  background-color: #252525;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
   padding: 15px;
-  border-radius: 4px;
   margin-bottom: 15px;
-  border: 1px solid #333;
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .step-header {
   display: flex;
-  justify_content: space-between;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 10px;
+}
+
+.step-title {
+    display: flex;
+    align-items: center;
 }
 
 .step-number {
   font-weight: bold;
-  color: #888;
+  color: var(--el-color-info);
 }
 
-/* Splitpanes Theme Overrides */
-:deep(.splitpanes__splitter) {
-  background-color: #333 !important;
-  width: 4px;
+.drag-handle:hover {
+    color: var(--el-color-primary);
 }
 </style>

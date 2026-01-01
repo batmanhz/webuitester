@@ -1,9 +1,9 @@
 model:
-  provider: "zhipu"
-  name: "glm-4.6v"
-  base_url: "https://open.bigmodel.cn/api/paas/v4/"
-  api_key: "5fdb0d4bbbb24692b15469a73ad23ac1.DWeb93wnlCVcrwyx"
-  temperature: 0.01
+  provider: "lm studio"
+  name: "qwen3-vl-8b-instruct"
+  base_url: "http://localhost:8000/v1"
+  api_key: "lm-studio"
+  temperature: 0.0
   thinking: true
 
 server:

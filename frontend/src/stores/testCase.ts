@@ -23,6 +23,16 @@ export interface TestCaseCreate {
   steps: Omit<TestStep, 'id'>[]
 }
 
+export interface GenerateStepsRequest {
+  url: string
+  intent: string
+}
+
+export interface GenerateStepsResponse {
+  name: string
+  steps: Omit<TestStep, 'id'>[]
+}
+
 export const useTestCaseStore = defineStore('testCase', () => {
   const cases: Ref<TestCase[]> = ref([])
   const currentCase: Ref<TestCase | null> = ref(null)
@@ -99,10 +109,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
       if (index !== -1) {
         cases.value[index] = updatedCase
       }
-      if (currentCase.value && currentCase.value.id === id) {
-        currentCase.value = updatedCase
-      }
-      
+      currentCase.value = updatedCase
       return updatedCase
     } catch (e: any) {
       error.value = e.message
@@ -113,19 +120,40 @@ export const useTestCaseStore = defineStore('testCase', () => {
   }
 
   const deleteCase = async (id: string) => {
+      loading.value = true
+      error.value = null
+      try {
+        const response = await fetch(`/api/cases/${id}`, {
+          method: 'DELETE',
+        })
+        if (!response.ok) throw new Error('Failed to delete test case')
+        
+        // Update local state
+        const index = cases.value.findIndex(c => c.id === id)
+        if (index !== -1) {
+          cases.value.splice(index, 1)
+        }
+      } catch (e: any) {
+        error.value = e.message
+        throw e
+      } finally {
+        loading.value = false
+      }
+  }
+
+  const generateSteps = async (req: GenerateStepsRequest): Promise<GenerateStepsResponse> => {
     loading.value = true
     error.value = null
     try {
-      const response = await fetch(`/api/cases/${id}`, {
-        method: 'DELETE',
+      const response = await fetch('/api/cases/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(req),
       })
-      if (!response.ok) throw new Error('Failed to delete test case')
-      
-      // Update local state
-      cases.value = cases.value.filter(c => c.id !== id)
-      if (currentCase.value && currentCase.value.id === id) {
-        currentCase.value = null
-      }
+      if (!response.ok) throw new Error('Failed to generate steps')
+      return await response.json()
     } catch (e: any) {
       error.value = e.message
       throw e
@@ -143,6 +171,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
     fetchCase,
     createCase,
     updateCase,
-    deleteCase
+    deleteCase,
+    generateSteps
   }
 })

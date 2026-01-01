@@ -20,13 +20,17 @@ Traditional automation frameworks like Selenium or Playwright rely heavily on ri
 
 ### 2.1 Functional Requirements (FR)
 
-*   **FR1: Structured Test Case Management**
-    *   The system must provide a structured editor for creating and editing test cases.
-    *   **Input Structure Definition**:
-        1.  **Pre-conditions (前置输入)**: Must capture Target URL (Required) and optional context (Cookies/Tokens).
-        2.  **Test Steps (测试步骤)**: An ordered list of natural language instructions (e.g., "Step 1: Input 'admin' in username field").
-        3.  **Expected Result (预期结果)**: A clear descriptive statement for validation (e.g., "Success notification appears").
-    *   Data persistence using a local database (SQLite).
+*   **FR1: 2-Step Test Case Creation Workflow (New)**
+    *   **Phase 1: Intent Definition**:
+        *   User inputs a natural language description of the test intent (e.g., "Login to Gmail and check the first email").
+        *   User inputs the Target URL.
+    *   **Phase 2: AI-Assisted Generation**:
+        *   System calls an AI Agent to analyze the intent and automatically generate structured test steps.
+        *   **Output**: A structured test case (Name, URL, List of Steps with Instructions and Expected Results).
+    *   **Phase 3: Manual Refinement**:
+        *   User reviews the generated steps in a structured editor.
+        *   User can manually add, edit, reorder, or delete steps.
+        *   User saves the final test case to the database.
 
 *   **FR2: Agent Configuration**
     *   Support configuration of LLM Backend:

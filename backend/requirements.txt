@@ -6,6 +6,8 @@ python-multipart
 tortoise-orm>=0.20.0
 aerich>=0.7.0
 # Agent
+browser-use
+langchain-openai
 playwright>=1.40.0
 langchain>=0.1.0
 openai>=1.0.0

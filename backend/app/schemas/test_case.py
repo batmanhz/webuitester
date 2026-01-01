@@ -33,3 +33,11 @@ class TestCaseRead(TestCaseBase):
     steps: List[TestStepRead] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+class GenerateStepsRequest(BaseModel):
+    url: str
+    intent: str
+
+class GenerateStepsResponse(BaseModel):
+    name: str
+    steps: List[TestStepCreate]

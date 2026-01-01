@@ -120,8 +120,8 @@ sequenceDiagram
 ## 7. Technology Stack
 *   **Frontend**: Vue 3, Vite, Element Plus, Pinia, VueUse.
 *   **Backend**: Python 3.10+, FastAPI, Uvicorn.
-*   **Automation**: Playwright (Python).
-*   **AI/LLM**: LangChain (for prompt management), OpenAI SDK (client).
+*   **Automation**: Browser-use (built on top of Playwright).
+*   **AI/LLM**: LangChain (via Browser-use), OpenAI SDK.
 *   **Database**: Tortoise ORM (Async) + SQLite.
 
 ## 8. Security & Privacy

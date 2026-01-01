@@ -11,6 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 from backend.app.core.database import TORTOISE_ORM
 from backend.app.api.endpoints import test_cases, runs
+from backend.app.core.patches import apply_browser_use_patches
+
+# Apply patches to external libraries
+apply_browser_use_patches()
 
 app = FastAPI(title="WebuiTester API", version="0.1.0")
 

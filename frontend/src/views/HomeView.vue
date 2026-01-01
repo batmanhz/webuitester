@@ -1,14 +1,21 @@
 <script setup lang="ts">
-import { onMounted, onActivated } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTestCaseStore } from '../stores/testCase'
 import { storeToRefs } from 'pinia'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const store = useTestCaseStore()
 const { cases, loading } = storeToRefs(store)
+
+const showIntentDialog = ref(false)
+const generating = ref(false)
+const intentForm = ref({
+  url: '',
+  intent: ''
+})
 
 const loadData = () => {
   store.fetchCases()
@@ -18,13 +25,47 @@ onMounted(() => {
   loadData()
 })
 
-// Since we are using router view which might be cached or reused, 
-// we want to ensure list is fresh when navigating back.
-// But Standard Vue Router navigation usually remounts unless keep-alive is used.
-// Let's rely on onMounted, but ensure fetchCases actually fetches fresh data.
+const openNewCaseDialog = () => {
+  intentForm.value = { url: '', intent: '' }
+  showIntentDialog.value = true
+}
 
-const createCase = () => {
-  router.push('/case/new')
+const handleGenerate = async () => {
+  if (!intentForm.value.url || !intentForm.value.intent) {
+    ElMessage.warning('Please fill in both URL and Intent')
+    return
+  }
+
+  generating.value = true
+  try {
+    const generated = await store.generateSteps({
+      url: intentForm.value.url,
+      intent: intentForm.value.intent
+    })
+    
+    // Store generated data in store state or pass via router
+    // Here we pass via query params or state. 
+    // Since steps are complex objects, query params are limited.
+    // Better to use a transient store state or just navigate to 'new' and have 'new' read from a shared state.
+    // For simplicity, let's use the store's currentCase as a temporary holder or add a 'draft' state.
+    // Or we can modify EditorView to handle a special 'generated' prop.
+    // Let's use localStorage or Pinia state. Pinia is better.
+    // We will update store.currentCase with the generated data (without ID) and then navigate.
+    
+    store.currentCase = {
+      id: '', // Empty ID signifies new
+      name: generated.name,
+      url: intentForm.value.url,
+      steps: generated.steps.map((s, idx) => ({ ...s, order: idx + 1, id: undefined, expected_result: s.expected_result || null }))
+    }
+    
+    showIntentDialog.value = false
+    router.push('/case/new?mode=generated')
+  } catch (e: any) {
+    ElMessage.error(e.message || 'Failed to generate steps')
+  } finally {
+    generating.value = false
+  }
 }
 
 const openCase = (id: string) => {
@@ -56,12 +97,12 @@ const deleteCase = async (id: string) => {
   <div class="home-view">
     <div class="header">
       <h1>Test Cases</h1>
-      <el-button type="primary" @click="createCase">
+      <el-button type="primary" @click="openNewCaseDialog">
         <el-icon><Plus /></el-icon> New Case
       </el-button>
     </div>
     
-    <div v-if="loading" class="loading-state">
+    <div v-if="loading && !generating" class="loading-state">
       <el-skeleton :rows="5" animated />
     </div>
 
@@ -86,6 +127,36 @@ const deleteCase = async (id: string) => {
         </el-table-column>
       </el-table>
     </div>
+
+    <!-- Intent Dialog -->
+    <el-dialog
+      v-model="showIntentDialog"
+      title="Create New Test Case"
+      width="50%"
+      :close-on-click-modal="!generating"
+    >
+      <el-form :model="intentForm" label-position="top">
+        <el-form-item label="Target URL" required>
+          <el-input v-model="intentForm.url" placeholder="https://example.com" />
+        </el-form-item>
+        <el-form-item label="Test Intent" required>
+          <el-input
+            v-model="intentForm.intent"
+            type="textarea"
+            :rows="4"
+            placeholder="Describe what you want to test... e.g., 'Login with admin/123456 and verify dashboard loads'"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showIntentDialog = false" :disabled="generating">Cancel</el-button>
+          <el-button type="primary" @click="handleGenerate" :loading="generating">
+            <el-icon><MagicStick /></el-icon> Generate Steps
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -96,8 +167,14 @@ const deleteCase = async (id: string) => {
 
 .header {
   display: flex;
-  justify_content: space-between;
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.case-list {
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  padding: 10px;
 }
 </style>

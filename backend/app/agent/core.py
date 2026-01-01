@@ -2,11 +2,11 @@ import json
 import os
 import asyncio
 import base64
-from typing import Optional, Any, List, Callable, Awaitable
-from playwright.async_api import async_playwright, Page
+from typing import Optional, Any, Callable, Awaitable
 from backend.app.models.test_case import TestCase
 from backend.app.core.config import settings
-from openai import AsyncOpenAI
+from browser_use import Agent as BrowserUseAgent, ChatOpenAI
+from browser_use.browser import BrowserProfile
 
 class Agent:
     def __init__(self):
@@ -16,17 +16,14 @@ class Agent:
         self.model = settings.model.name
         self.temperature = settings.model.temperature
         self.thinking = settings.model.thinking
+        self._current_agent = None  # Hold reference to browser_use agent
+        self._stop_event = asyncio.Event()
         
         if not self.api_key:
             self.api_key = os.environ.get("OPENAI_API_KEY")
 
-        if self.api_key:
-            self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-        else:
-            self.client = None
-
-    async def execute_case(self, case: TestCase, log_callback: Optional[Callable[[dict], Awaitable[None]]] = None) -> bool:
-        if not self.client:
+    async def execute_case(self, case: TestCase, log_callback: Optional[Callable[[dict], Awaitable[None]]] = None, stop_event: Optional[asyncio.Event] = None) -> bool:
+        if not self.api_key:
             print("Error: OpenAI API Key not provided. Cannot execute.")
             return False
 
@@ -34,359 +31,161 @@ class Agent:
             if log_callback:
                 await log_callback({"type": type, "data": data})
 
-        async with async_playwright() as p:
-            # Launch browser with Stealth Mode
-            # Using headless=True for production, but keeping stealth args
-            browser = await p.chromium.launch(
-                headless=False,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--start-maximized" 
-                ]
-            )
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-            """)
-            
-            page = await context.new_page()
-            
-            try:
-                msg = f"Navigating to {case.url}"
-                print(msg)
-                await emit("log", msg)
-                
-                await page.goto(case.url)
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=5000)
-                except:
-                    print("Network idle timeout, continuing...")
-                
-                # Wait for page to settle (fix for Baidu input visibility issue)
-                await page.wait_for_timeout(2000)
-                
-                # Initial screenshot
-                screenshot = await page.screenshot(type="jpeg", quality=60)
-                await emit("screenshot", base64.b64encode(screenshot).decode())
-
-                await case.fetch_related("steps")
-                steps = sorted(case.steps, key=lambda x: x.order)
-                
-                all_passed = True
-                for step in steps:
-                    msg = f"Executing step {step.order}: {step.instruction}"
-                    print(msg)
-                    await emit("step_start", {"step_id": str(step.id), "order": step.order})
-                    await emit("log", msg)
-                    
-                    # 1. Capture Context
-                    elements_summary = await page.evaluate("""() => {
-                        const elements = document.querySelectorAll('button, a, input, textarea, select');
-                        return Array.from(elements).map(el => {
-                            let text = el.innerText || el.textContent || '';
-                            text = text.slice(0, 50).replace(/\\s+/g, ' ').trim();
-                            
-                            const style = window.getComputedStyle(el);
-                            const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
-                            
-                            if (!isVisible) return null;
-
-                            return {
-                                tagName: el.tagName.toLowerCase(),
-                                id: el.id,
-                                className: el.className,
-                                name: el.name,
-                                type: el.type,
-                                placeholder: el.placeholder,
-                                text: text,
-                                value: el.value,
-                                "aria-label": el.getAttribute('aria-label')
-                            }
-                        }).filter(el => el !== null);
-                    }""")
-                    
-                    context_str = json.dumps(elements_summary, indent=2)
-                    
-                    # 2. Construct Prompt
-                    system_prompt = """
-                    You are a web automation agent. You will receive a user instruction and a list of interactive elements on the page.
-                    You need to output a JSON object describing the action to take using Playwright.
-                    
-                    Rules:
-                    1. Use the EXACT selector from the "Page Elements" list. Do NOT invent selectors.
-                    2. If the instruction implies searching (e.g., "input text"), look for input fields.
-                    3. If the instruction implies submitting (e.g., "click search"), look for the submit button near the input.
-                    4. For Baidu, the search input is usually #kw and the search button is #su.
-                    5. Return ONLY the JSON object.
-                    
-                    Supported actions:
-                    - {"action": "click", "selector": "..."} 
-                    - {"action": "fill", "selector": "...", "value": "..."}
-                    - {"action": "goto", "url": "..."}
-                    - {"action": "wait", "seconds": 1}
-                    """
-                    
-                    user_message = f"""
-                    Instruction: {step.instruction}
-                    Expected Result: {step.expected_result}
-                    
-                    Page Elements:
-                    {context_str}
-                    """
-                    
-                    # 3. Call LLM
-                    # Capture screenshot right before calling LLM to provide fresh visual context
-                    current_screenshot = await page.screenshot(type="jpeg", quality=60)
-                    current_screenshot_b64 = base64.b64encode(current_screenshot).decode()
-                    
-                    extra_body = {}
-                    if self.thinking:
-                         extra_body["thinking"] = {"type": "enabled"}
-
-                    await emit("log", "Thinking...")
-                    
-                    # Construct multimodal message
-                    user_content = [
-                        {
-                            "type": "text", 
-                            "text": user_message
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{current_screenshot_b64}"
-                            }
-                        }
-                    ]
-                    
-                    response = await self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content}
-                        ],
-                        response_format={"type": "json_object"},
-                        temperature=self.temperature,
-                        extra_body=extra_body if extra_body else None
-                    )
-                    
-                    action_json = response.choices[0].message.content
-                    if not action_json:
-                        await emit("log", "Error: LLM returned empty response")
-                        return False
-                        
-                    if action_json.startswith("```json"):
-                        action_json = action_json.replace("```json", "").replace("```", "").strip()
-                    elif action_json.startswith("```"):
-                         action_json = action_json.replace("```", "").strip()
-                        
-                    action_data = json.loads(action_json)
-                    await emit("log", f"Action: {json.dumps(action_data)}")
-                    print(f"Agent Action: {action_data}")
-                    
-                    # 4. Execute Action
-                    await self._perform_action(page, action_data)
-                    
-                    # Short wait for action effects (e.g. typing, clicking)
-                    await page.wait_for_timeout(3000) 
-                    
-                    # If it was a click, maybe wait for network idle too
-                    if action_data.get("action") == "click":
-                        try:
-                            # Use a short timeout for networkidle because sometimes clicks don't trigger network
-                            await page.wait_for_load_state("networkidle", timeout=3000)
-                        except:
-                            pass # It's fine if it times out
-                    
-                    # Screenshot after step
-                    screenshot = await page.screenshot(type="jpeg", quality=60)
-                    await emit("screenshot", base64.b64encode(screenshot).decode())
-
-                    # 5. Verification (Auto-Judge)
-                    if step.expected_result:
-                         # Capture context again for verification
-                         verify_elements = await page.evaluate("""() => {
-                             const inputs = document.querySelectorAll('input, textarea');
-                             let results = [];
-                             inputs.forEach(el => {
-                                 // Only care about visible inputs or inputs with values
-                                 const style = window.getComputedStyle(el);
-                                 const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
-                                 if (el.value || isVisible) {
-                                     results.push(`Input [${el.id || el.name || 'unknown'}]: '${el.value}' (Visible: ${isVisible})`);
-                                 }
-                             });
-                             
-                             const bodyText = document.body.innerText.replace(/\\s+/g, ' ').slice(0, 5000);
-                             return "Detected Inputs:\\n" + results.join("\\n") + "\\n\\nPage Text:\\n" + bodyText; 
-                         }""")
-                         
-                         system_verify_prompt = """
-                         You are a QA Verification Agent.
-                         You need to verify if the last action achieved the expected result based on the page content.
-                         Return JSON: {"status": "passed" | "failed", "reason": "..."}
-                         """
-                         
-                         user_verify_message = f"""
-                         User Instruction: {step.instruction}
-                         Expected Result: {step.expected_result}
-                         Actual Page Content (truncated):
-                         {verify_elements}
-                         """
-                         
-                         await emit("log", "Verifying result...")
-                         
-                         v_extra_body = {}
-                         if self.thinking:
-                              v_extra_body["thinking"] = {"type": "enabled"}
-                              
-                         v_response = await self.client.chat.completions.create(
-                             model=self.model,
-                             messages=[
-                                 {"role": "system", "content": system_verify_prompt},
-                                 {"role": "user", "content": user_verify_message}
-                             ],
-                             response_format={"type": "json_object"},
-                             extra_body=v_extra_body if v_extra_body else None
-                         )
-                         v_json = v_response.choices[0].message.content
-                         v_data = json.loads(v_json)
-                         
-                         status = v_data.get("status", "passed")
-                         reason = v_data.get("reason", "")
-                         
-                         if status == "failed":
-                             await emit("log", f"Verification Failed: {reason}")
-                             await emit("step_end", {"step_id": str(step.id), "status": "failed"})
-                             all_passed = False
-                             # Optional: Stop execution on failure?
-                             # return False 
-                         else:
-                             await emit("log", "Verification Passed")
-                             await emit("step_end", {"step_id": str(step.id), "status": "passed"})
-                    else:
-                        await emit("step_end", {"step_id": str(step.id), "status": "passed"})
-                    
-                if all_passed:
-                    await emit("log", "Test Case execution completed successfully.")
-                    return True
-                else:
-                    await emit("log", "Test Case execution failed.")
-                    return False
-                
-            except Exception as e:
-                msg = f"Error executing case {case.name}: {e}"
-                print(msg)
-                await emit("log", msg)
-                import traceback
-                traceback.print_exc()
-                return False
-            finally:
-                await browser.close()
-
-    async def _perform_action(self, page: Page, action_data: dict):
-        action = action_data.get("action")
-        selector = action_data.get("selector")
+        llm = self._setup_llm()
+        browser_profile = self._setup_browser()
+        task_prompt = await self._construct_task_prompt(case)
         
+        await emit("log", f"Initializing Browser-Use Agent with task:\n{task_prompt}")
+
+        agent = self._initialize_agent(task_prompt, llm, browser_profile)
+        self._current_agent = agent
+
+        return await self._run_agent_loop(agent, emit, stop_event)
+
+    def _setup_llm(self):
+        return ChatOpenAI(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            model=self.model,
+            temperature=self.temperature,
+        )
+
+    def _setup_browser(self):
+        return BrowserProfile(
+            headless=False,
+        )
+
+    async def _construct_task_prompt(self, case: TestCase) -> str:
+        await case.fetch_related("steps")
+        steps = sorted(case.steps, key=lambda x: x.order)
+        
+        task_prompt = f"Navigate to {case.url} and perform the following test steps:\n\n"
+        for step in steps:
+            task_prompt += f"Step {step.order}: {step.instruction}\n"
+            if step.expected_result:
+                task_prompt += f"  - Verification needed: {step.expected_result}\n"
+        
+        task_prompt += "\nIMPORTANT: Provide a detailed summary of actions and verifications."
+        return task_prompt
+
+    def _initialize_agent(self, task_prompt, llm, browser_profile):
+        return BrowserUseAgent(
+            task=task_prompt,
+            llm=llm,
+            browser_profile=browser_profile,
+            use_vision=True
+        )
+
+    async def _run_agent_loop(self, agent, emit, stop_event) -> bool:
         try:
-            # Create CDP session for low-level interaction (MCP style)
-            session = await page.context.new_cdp_session(page)
+            print("DEBUG: Agent execution starting...")
+            await emit("log", "Agent execution started...")
             
-            if action == "click":
-                if selector:
-                    # 1. Try Standard Playwright Click with reduced timeout
-                    try:
-                        print(f"[Action] Trying Level 1 (Playwright Click) on {selector}...")
-                        # Reduced timeout to 2000ms to fail faster and switch to robust methods
-                        await page.wait_for_selector(selector, state="attached", timeout=2000)
-                        await page.click(selector, timeout=2000)
-                        print(f"[Action] Level 1 (Playwright Click) SUCCESS")
-                    except Exception as e:
-                        print(f"[Action] Level 1 Failed: {e}")
-                        
-                        # 2. JS Click (Most robust for visibility issues)
-                        print(f"[Action] Trying Level 2 (JS Click) on {selector}...")
-                        js_selector = selector.replace("'", "\\'")
-                        await page.evaluate(f"""() => {{
-                            const el = document.querySelector('{js_selector}');
-                            if (el) {{
-                                el.click();
-                            }} else {{
-                                throw new Error("Element not found for JS click");
-                            }}
-                        }}""")
-                        print(f"[Action] Level 2 (JS Click) SUCCESS")
+            # Start the browser session to initialize watchdogs
+            if agent.browser_session:
+                print("DEBUG: Starting browser session...")
+                await agent.browser_session.start()
+                print("DEBUG: Browser session started.")
             
-            elif action == "fill":
-                value = action_data.get("value")
-                if selector and value is not None:
-                    js_selector = selector.replace("'", "\\'")
-                    # 1. Try Standard Fill/Type with reduced timeout
-                    try:
-                        print(f"[Action] Trying Level 1 (Playwright Type) on {selector}...")
-                        # Reduced timeout to 2000ms to fail faster
-                        await page.wait_for_selector(selector, state="attached", timeout=2000)
-                        await page.click(selector, timeout=1000) # Short timeout for focus click
-                        # Type with 0 delay for instant input
-                        await page.keyboard.type(value, delay=0)
-                        
-                        # Verify if value was applied
-                        current_val = await page.evaluate(f"document.querySelector('{js_selector}').value")
-                        if current_val != value:
-                             raise Exception(f"Value mismatch after type. Expected '{value}', got '{current_val}'")
-                             
-                        print(f"[Action] Level 1 (Playwright Type) SUCCESS")
-                    except Exception as e:
-                        print(f"[Action] Level 1 Failed: {e}")
-                        
-                        # 2. JS Focus + CDP InsertText (True User Simulation)
-                        try:
-                            print(f"[Action] Trying Level 2 (CDP InsertText) on {selector}...")
-                            await page.evaluate(f"document.querySelector('{js_selector}').focus()")
-                            # Small delay to ensure focus
-                            await page.wait_for_timeout(200)
-                            await session.send("Input.insertText", {"text": value})
-                            
-                            # Verify again
-                            current_val = await page.evaluate(f"document.querySelector('{js_selector}').value")
-                            if current_val != value:
-                                 raise Exception(f"Value mismatch after CDP. Expected '{value}', got '{current_val}'")
-                                 
-                            print(f"[Action] Level 2 (CDP InsertText) SUCCESS")
-                        except Exception as cdp_e:
-                            print(f"[Action] Level 2 Failed: {cdp_e}")
+            max_steps = 30
+            step_count = 0
+            
+            while step_count < max_steps:
+                print(f"DEBUG: Starting step {step_count + 1}")
+                if stop_event and stop_event.is_set():
+                    await emit("log", "Stop requested by user. Terminating agent...")
+                    break
+                
+                step_count += 1
+                
+                print("DEBUG: Calling agent.step()...")
+                await agent.step()
+                print("DEBUG: agent.step() returned.")
+                
+                if await self._process_step_data(agent, emit):
+                    return True
+            
+            await emit("log", "Agent execution finished (Max steps reached or stopped).")
+            return True
 
-                            # 3. Always Force JS Fill (Safety Net)
-                            print(f"[Action] Executing Level 3 (JS Force Fill) as Safety Net...")
-                            await page.evaluate(f"""(val) => {{
-                               const el = document.querySelector('{js_selector}');
-                               if (el) {{
-                                   el.value = val;
-                                   el.setAttribute('value', val);
-                                   el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                   el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                   el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                               }}
-                            }}""", value)
-                            print(f"[Action] Level 3 (JS Force Fill) Executed")
-
-            elif action == "goto":
-                url = action_data.get("url")
-                if url:
-                    await page.goto(url)
-            elif action == "wait":
-                seconds = action_data.get("seconds", 1)
-                await page.wait_for_timeout(seconds * 1000)
-            else:
-                print(f"Unknown or no-op action: {action}")
+        except asyncio.CancelledError:
+            print("DEBUG: Agent execution CancelledError caught.")
+            await emit("log", "Agent execution cancelled.")
+            return False
         except Exception as e:
-            print(f"Action Execution Error: {e}")
-            raise e
+            print(f"DEBUG: Agent execution Exception caught: {e}")
+            import traceback
+            traceback.print_exc()
+            await emit("log", f"Agent execution failed: {str(e)}")
+            return False
+        finally:
+            print("DEBUG: Agent execution finally block.")
+            if agent.browser_session:
+                try:
+                    print("DEBUG: Stopping browser session...")
+                    await agent.browser_session.stop()
+                    print("DEBUG: Browser session stopped.")
+                except Exception as e:
+                    print(f"Error stopping browser session: {e}")
+
+    async def _process_step_data(self, agent, emit) -> bool:
+        # Extract and emit info from history
+        if agent.history and hasattr(agent.history, 'history') and agent.history.history:
+            last_step = agent.history.history[-1]
+            
+            await self._extract_screenshot(last_step, emit)
+            return await self._extract_logs(last_step, emit)
+        return False
+
+    async def _extract_screenshot(self, last_step, emit):
+        try:
+            screenshot = None
+            if hasattr(last_step, 'state') and last_step.state:
+                # Check for direct screenshot
+                if hasattr(last_step.state, 'screenshot') and last_step.state.screenshot:
+                    screenshot = last_step.state.screenshot
+                # Check for screenshot_path
+                elif hasattr(last_step.state, 'screenshot_path') and last_step.state.screenshot_path:
+                    screenshot_path = last_step.state.screenshot_path
+                    if os.path.exists(screenshot_path):
+                        with open(screenshot_path, "rb") as image_file:
+                            screenshot = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            if screenshot:
+                await emit("screenshot", screenshot)
+        except Exception as e:
+            print(f"Error extracting screenshot: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _extract_logs(self, last_step, emit) -> bool:
+        try:
+            model_output = getattr(last_step, 'model_output', None)
+            if model_output:
+                # Thought
+                thought = None
+                if hasattr(model_output, 'current_state') and model_output.current_state:
+                    thought = getattr(model_output.current_state, 'thought', None)
+                
+                if not thought and hasattr(model_output, 'thought'):
+                    thought = model_output.thought
+                    
+                if thought:
+                    await emit("log", f"[THOUGHT] {thought}")
+                    
+                # Actions
+                actions = getattr(model_output, 'action', [])
+                if actions:
+                    for action in actions:
+                        action_data = action.model_dump() if hasattr(action, 'model_dump') else str(action)
+                        await emit("log", f"[ACTION] {action_data}")
+                        
+                        # Check for completion
+                        if isinstance(action_data, dict) and 'done' in action_data:
+                            await emit("log", f"Agent completed task: {action_data['done']}")
+                            return True
+                        if isinstance(action_data, str) and 'done' in action_data.lower():
+                            return True
+        except Exception as e:
+            print(f"Error extracting logs: {e}")
+        return False

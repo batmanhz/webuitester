@@ -31,28 +31,43 @@ graph TD
     C2 --> C2b[Right: Execution Panel]
 
 ## 5. Key Screen Layouts
-### 5.1 Main Split View (The "IDE" View)
+### 5.1 New Case Creation (Intent-First Flow)
+*   **Dialog/Modal**: "Create New Test Case"
+    *   **Input 1**: Target URL (Required, Full width).
+    *   **Input 2**: Test Intent Description (Large Textarea).
+        *   *Placeholder*: "Describe what you want to test in natural language. e.g., 'Go to the login page, enter valid credentials, and verify the dashboard loads.'"
+    *   **Primary Action**: "✨ Generate Test Steps" (Triggers AI).
+    *   **Loading State**: "Analyzing intent and generating steps..." (Skeleton loader or Spinner).
+
+### 5.2 Main Split View (The "IDE" View)
 *   **Layout**: 50% Left (Edit), 50% Right (Run). Resizable divider.
-*   **Left Panel**: The Smart Editor
+*   **Left Panel**: The Structured Editor (Pre-populated by AI)
     *   **Header**:
-        *   Input: Target URL (Full width).
-        *   Input: Case Name (Optional).
-    *   **Smart Input Area** (The "2B" Feature):
-        *   Component: Large Textarea with "Smart Format" toggle.
-        *   **State A (Raw Text)**: Large textarea for pasting unstructured test steps (e.g., "1. Open login, 2. type admin...").
-        *   **Action**: "✨ AI Format" Button triggers parsing.
-        *   **State B (Structured List)**: Sortable/Draggable Cards.
-            *   Content: Step Number, Action Description (Editable), Expected Result (Optional).
-            *   Actions: Delete Step, Add Step Between, Drag to Reorder.
+        *   Input: Case Name (Editable, pre-filled by AI).
+        *   Input: Target URL (Editable).
+    *   **Structured Step List**:
+        *   Component: Sortable/Draggable Cards.
+        *   **Card Content**:
+            *   **Header**: Step Number.
+            *   **Instruction**: Textarea (e.g., "Click on 'Login' button").
+            *   **Expected Result**: Textarea (e.g., "Login modal appears").
+        *   **Actions**:
+            *   Delete Step (Trash icon).
+            *   Add Step (Plus icon between steps or at bottom).
+            *   Drag handle to reorder.
     *   **Footer**:
-        *   Primary Button: **Run Test** (Purple, Large, with Play Icon).
+        *   Primary Button: **Save & Run** (Purple, Large).
+        *   Secondary Button: **Save Only**.
 *   **Right Panel**: Execution & Feedback
+    *   **Header / Status Bar** (Overlay or Top):
+        *   **Status Badge**: (RUNNING / PASSED / FAILED / STOPPED).
+        *   **Action**: **Stop** Button (Visible only when RUNNING).
     *   **Screenshot Viewer** (Top 60%):
         *   **State 1 (Idle)**: Placeholder with "Ready to Start" illustration.
         *   **State 2 (Running)**: Shows latest screenshot pushed by backend.
             *   *Overlay*: "Loading..." spinner or "Thinking..." badge when Agent is planning.
             *   *Annotation*: Bounding boxes drawn on interacted elements (e.g., red box around clicked button).
-        *   **State 3 (Done)**: Shows final state screenshot with Result Badge (PASS/FAIL).
+        *   **State 3 (Done)**: Shows final state screenshot with Result Badge (PASS/FAIL/STOPPED).
     *   **Live Console** (Bottom 40%):
         *   Style: Terminal-like, Monospace font (Fira Code), Dark background.
         *   Content: Streaming structured logs.
@@ -71,9 +86,12 @@ graph TD
     *   Toggle: Headless Mode (Run without visible browser window).
     *   Input: Viewport Size (Default: 1280x720).
 ## 6. Interaction Flows
-Smart Paste Flow:
-User creates new Case -> Pastes raw text block -> Clicks "Format" -> App parses text by newlines/numbers -> Populates Step List.
-Execution Flow:
+**New Case Flow**:
+User clicks "New Case" -> **Intent Dialog** appears -> User enters URL & Description -> Clicks "Generate" ->
+Backend AI processes intent -> **Editor View** opens with populated steps ->
+User reviews/edits steps -> Clicks "Save & Run" -> Execution starts in Right Panel.
+
+**Execution Flow**:
 User clicks Run -> Right panel clears -> Spinner appears -> First log "Initializing Agent..." -> First Screenshot appears -> Steps highlight in Left Panel as they are executed (Syncing Left/Right) -> Final Result Overlay (Pass/Fail).
 ## 7. Component Library (Element Plus)
 Buttons: el-button (Primary, Text).
