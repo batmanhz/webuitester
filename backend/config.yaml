@@ -5,6 +5,7 @@ model:
   api_key: "lm-studio"
   temperature: 0.0
   thinking: true
+  use_vision: true
 
 server:
   host: "127.0.0.1"

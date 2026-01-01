@@ -10,6 +10,7 @@ class ModelConfig(BaseModel):
     api_key: str
     temperature: float = 0.0
     thinking: bool = False
+    use_vision: bool = True
 
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"

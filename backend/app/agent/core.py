@@ -16,6 +16,7 @@ class Agent:
         self.model = settings.model.name
         self.temperature = settings.model.temperature
         self.thinking = settings.model.thinking
+        self.use_vision = settings.model.use_vision
         self._current_agent = None  # Hold reference to browser_use agent
         self._stop_event = asyncio.Event()
         
@@ -73,7 +74,7 @@ class Agent:
             task=task_prompt,
             llm=llm,
             browser_profile=browser_profile,
-            use_vision=True
+            use_vision=self.use_vision
         )
 
     async def _run_agent_loop(self, agent, emit, stop_event) -> bool:
