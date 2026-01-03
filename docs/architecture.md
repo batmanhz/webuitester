@@ -43,9 +43,9 @@ graph TB
     *   Manages the lifecycle of the Agent.
     *   Handles WebSocket broadcasting.
 *   **Agent Engine (Python)**:
-    *   **Planner**: Breaks down steps into atomic actions.
-    *   **Executor (Playwright)**: Executes actions on the browser.
-    *   **Vision Analyst**: Uses Multimodal LLM to analyze screenshots for element location and verification.
+    *   **Core**: Built on top of the `browser-use` library.
+    *   **Executor**: Uses `browser-use` Agent to orchestrate Playwright and LLM interactions.
+    *   **LLM Integration**: Supports generic OpenAI-compatible APIs (including Local LLMs) via `langchain`.
 *   **Database (SQLite)**:
     *   Stores Test Cases, Run History, and Configuration.
 

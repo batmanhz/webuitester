@@ -34,8 +34,7 @@ Traditional automation frameworks like Selenium or Playwright rely heavily on ri
 
 *   **FR2: Agent Configuration**
     *   Support configuration of LLM Backend:
-        *   **Cloud Mode**: API Key + Base URL (OpenAI standard).
-        *   **Local Mode**: Ollama Base URL.
+        *   **Generic OpenAI Compatible**: Configurable `api_key`, `base_url`, `model_name` to support Cloud (OpenAI, DeepSeek) or Local (Ollama, LM Studio) providers.
     *   Support Browser Mode toggling: Headless (fast) vs Headed (visible).
 
 *   **FR3: Intelligent Execution Engine**

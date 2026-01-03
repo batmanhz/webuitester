@@ -23,19 +23,22 @@ WebuiTester 是一个本地优先的、AI 驱动的 Web 自动化测试工具。
 webuitester/
 ├── backend/            # 后端服务
 │   ├── app/            # 核心业务逻辑
-│   │   ├── agent/      # AI Agent 执行引擎
+│   │   ├── agent/      # AI Agent 执行引擎 (基于 browser-use)
 │   │   ├── api/        # REST API & WebSocket
 │   │   ├── core/       # 配置与数据库
 │   │   └── models/     # 数据库模型
 │   ├── config.yaml     # 系统配置文件
-│   └── main.py         # 入口文件
+│   └── main.py         # FastAPI 入口
 ├── frontend/           # 前端应用
 │   ├── src/
-│   │   ├── components/ # LogViewer 等组件
-│   │   ├── views/      # EditorView 等页面
+│   │   ├── components/ # 组件
+│   │   ├── views/      # 页面
 │   │   └── stores/     # 状态管理
 ├── tests/              # 自动化测试脚本
-└── docs/               # 项目文档 (PRD, Stories)
+├── docs/               # 项目文档 (PRD, Stories)
+├── web-bundles/        # 预置 Agent 和 Team 配置
+├── start.bat           # Windows 启动脚本
+└── stop.bat            # Windows 停止脚本
 ```
 
 ## ⚡ 快速开始
