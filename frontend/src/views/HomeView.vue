@@ -162,19 +162,23 @@ const deleteCase = async (id: string) => {
 
 <style scoped>
 .home-view {
-  padding: 20px;
+  padding: 40px;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid var(--el-border-color-light);
+  padding-bottom: 20px;
 }
 
 .case-list {
   background: var(--el-bg-color);
   border-radius: 8px;
-  padding: 10px;
+  padding: 20px;
 }
 </style>

@@ -40,24 +40,27 @@ graph TD
     *   **Loading State**: "Analyzing intent and generating steps..." (Skeleton loader or Spinner).
 
 ### 5.2 Main Split View (The "IDE" View)
-*   **Layout**: 50% Left (Edit), 50% Right (Run). Resizable divider.
+*   **Layout**: 50% Left (Edit), 50% Right (Run). Resizable divider (Min-width: 40% each).
+*   **Container Style**: Full height, no maximum width restriction, padded content areas (40px) for breathability.
 *   **Left Panel**: The Structured Editor (Pre-populated by AI)
     *   **Header**:
+        *   Title: "New Test Case" or "Edit Test Case"
+        *   **Actions** (Top Right):
+            *   Button: **Save Only** (Secondary).
+            *   Button: **Save & Run** (Primary, with Icon).
+    *   **Form Content**:
         *   Input: Case Name (Editable, pre-filled by AI).
         *   Input: Target URL (Editable).
     *   **Structured Step List**:
         *   Component: Sortable/Draggable Cards.
         *   **Card Content**:
             *   **Header**: Step Number.
-            *   **Instruction**: Textarea (e.g., "Click on 'Login' button").
-            *   **Expected Result**: Textarea (e.g., "Login modal appears").
+            *   **Instruction**: Textarea (e.g., "Click on 'Login' button", 4 rows height).
+            *   **Expected Result**: Textarea (e.g., "Login modal appears", 4 rows height).
         *   **Actions**:
             *   Delete Step (Trash icon).
             *   Add Step (Plus icon between steps or at bottom).
             *   Drag handle to reorder.
-    *   **Footer**:
-        *   Primary Button: **Save & Run** (Purple, Large).
-        *   Secondary Button: **Save Only**.
 *   **Right Panel**: Execution & Feedback
     *   **Header / Status Bar** (Overlay or Top):
         *   **Status Badge**: (RUNNING / PASSED / FAILED / STOPPED).

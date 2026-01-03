@@ -16,7 +16,6 @@ class Agent:
         self.model = settings.model.name
         self.temperature = settings.model.temperature
         self.thinking = settings.model.thinking
-        self.use_vision = settings.model.use_vision
         self._current_agent = None  # Hold reference to browser_use agent
         self._stop_event = asyncio.Event()
         
@@ -52,8 +51,12 @@ class Agent:
         )
 
     def _setup_browser(self):
+        # Load config to check for headless setting
+        from backend.app.core.config import settings
+        is_headless = getattr(settings.model, 'headless', False)
+        
         return BrowserProfile(
-            headless=False,
+            headless=is_headless,
         )
 
     async def _construct_task_prompt(self, case: TestCase) -> str:
@@ -74,7 +77,7 @@ class Agent:
             task=task_prompt,
             llm=llm,
             browser_profile=browser_profile,
-            use_vision=self.use_vision
+            use_vision="auto"
         )
 
     async def _run_agent_loop(self, agent, emit, stop_event) -> bool:
@@ -183,7 +186,12 @@ class Agent:
                         
                         # Check for completion
                         if isinstance(action_data, dict) and 'done' in action_data:
-                            await emit("log", f"Agent completed task: {action_data['done']}")
+                            done_content = action_data['done']
+                            final_text = done_content
+                            if isinstance(done_content, dict) and 'text' in done_content:
+                                final_text = done_content['text']
+                            
+                            await emit("log", f"✅ FINAL RESULT: {final_text}")
                             return True
                         if isinstance(action_data, str) and 'done' in action_data.lower():
                             return True

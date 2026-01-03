@@ -1,12 +1,11 @@
 model:
-  provider: "lm studio"
-  name: "qwen3-vl-8b-instruct"
-  base_url: "http://localhost:8000/v1"
-  api_key: "lm-studio"
+  api_key: lm-studio
+  base_url: http://localhost:8000/v1
+  headless: false
+  name: browser-use_bu-30b-a3b-preview@q4_k_m
+  provider: lm studio
   temperature: 0.0
   thinking: true
-  use_vision: true
-
 server:
-  host: "127.0.0.1"
+  host: 127.0.0.1
   port: 19000

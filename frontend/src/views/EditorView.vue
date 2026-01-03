@@ -146,10 +146,13 @@ const runTest = async (id?: string) => {
 <template>
   <div class="editor-view">
     <splitpanes class="default-theme" style="height: 100%">
-      <pane min-size="20">
+      <pane min-size="40">
         <div class="panel-content left-panel">
           <div class="panel-header">
+            <!-- Left: Title -->
             <h2>{{ isNew ? 'New Test Case' : 'Edit Test Case' }}</h2>
+            
+            <!-- Right: Actions -->
             <div class="actions">
               <el-button @click="saveCase(false)" :loading="loading">Save Only</el-button>
               <el-button type="primary" @click="saveCase(true)" :loading="loading">
@@ -159,6 +162,7 @@ const runTest = async (id?: string) => {
           </div>
           
           <el-form :model="form" label-position="top">
+            <!-- Full Width Inputs -->
             <el-form-item label="Test Case Name" required>
               <el-input v-model="form.name" placeholder="e.g. Login Flow" />
             </el-form-item>
@@ -199,7 +203,7 @@ const runTest = async (id?: string) => {
                           <el-input 
                             v-model="element.instruction" 
                             type="textarea" 
-                            :rows="2"
+                            :rows="4"
                             placeholder="e.g. Click on 'Login' button" 
                           />
                         </el-form-item>
@@ -209,7 +213,7 @@ const runTest = async (id?: string) => {
                           <el-input 
                             v-model="element.expected_result" 
                             type="textarea" 
-                            :rows="2"
+                            :rows="4"
                             placeholder="e.g. Login modal appears" 
                           />
                         </el-form-item>
@@ -222,7 +226,7 @@ const runTest = async (id?: string) => {
           </el-form>
         </div>
       </pane>
-      <pane min-size="20">
+      <pane min-size="40">
         <div class="panel-content right-panel">
           <h2>Execution Feedback</h2>
            <LogViewer :runId="currentRunId" />
@@ -241,29 +245,49 @@ const runTest = async (id?: string) => {
 
 .panel-content {
   height: 100%;
-  padding: 20px;
+  padding: 40px;
   overflow-y: auto;
   box-sizing: border-box;
+}
+
+/* Ensure form items take full width */
+.el-form-item {
+  width: 100%;
 }
 
 .left-panel {
   background-color: var(--el-bg-color);
   border-right: 1px solid var(--el-border-color);
+  /* Increase padding for wider feel */
+  padding: 40px 60px; 
 }
 
 .right-panel {
-  background-color: #1e1e1e; /* Darker background for console feel */
+  background-color: #1e1e1e;
   color: #fff;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.right-panel > h2 {
+    padding: 20px 40px 0 40px;
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 10px;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--el-border-color-light);
 }
+
+.actions {
+  display: flex;
+  gap: 15px; /* Separate buttons */
+}
+
 
 .steps-section {
   margin-top: 30px;

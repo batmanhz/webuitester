@@ -53,7 +53,7 @@ async def main():
         task="打开携程网站搜索杭州到北京1月2日的机票信息",
         llm=llm,
         browser_profile=browser_profile,  # 使用 browser_profile 代替 browser
-        use_vision=False,  # 关键点：如果你用的不是 VL (视觉) 模型，必须设为 False
+        use_vision='auto',  # 关键点：如果你用的不是 VL (视觉) 模型，必须设为 False
     )
 
     # 4. 运行

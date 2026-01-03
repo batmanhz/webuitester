@@ -208,6 +208,7 @@ defineExpose({
   font-family: 'Fira Code', monospace;
   font-size: 12px;
   background-color: #1e1e1e;
+  text-align: left;
 }
 
 .log-line {

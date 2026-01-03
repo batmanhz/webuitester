@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 from backend.app.core.database import TORTOISE_ORM
-from backend.app.api.endpoints import test_cases, runs
+from backend.app.api.endpoints import test_cases, runs, config
 from backend.app.core.patches import apply_browser_use_patches
 
 # Apply patches to external libraries
@@ -30,6 +30,7 @@ app.add_middleware(
 # Register Routes
 app.include_router(test_cases.router, prefix="/api", tags=["Test Cases"])
 app.include_router(runs.router, prefix="/api/runs", tags=["Test Runs"])
+app.include_router(config.router, prefix="/api", tags=["Configuration"])
 
 # Database
 register_tortoise(
