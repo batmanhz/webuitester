@@ -110,7 +110,9 @@ class Agent:
                     return True
             
             await emit("log", "Agent execution finished (Max steps reached or stopped).")
-            return True
+            # If we reached here without returning True from _process_step_data (which checks for 'done' action),
+            # it means the agent didn't explicitly complete the task successfully.
+            return False
 
         except asyncio.CancelledError:
             print("DEBUG: Agent execution CancelledError caught.")
